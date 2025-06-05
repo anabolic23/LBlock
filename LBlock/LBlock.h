@@ -53,7 +53,7 @@ double sum_u_i_limited(int w, size_t limit, const std::vector<std::map<double, s
 std::vector<std::vector<double>> precompute_partial_sums(const std::vector<std::map<double, size_t>>& u_distributions, size_t max_limit_per_A);
 double get_precomputed_sum(int w, size_t limit, const std::vector<std::vector<double>>& partial_sums);
 
-void computeUB_to_bin(
+void computeUB(
     const std::vector<std::vector<miniTemplate>>& Phi_system,
     int rounds,
     const std::string& output_prefix,
