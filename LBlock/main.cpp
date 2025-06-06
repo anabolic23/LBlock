@@ -15,7 +15,7 @@
 //}
 
 int main() {
-    constexpr int rounds = 32;
+    constexpr int rounds = 16;
     double p = 0.25; 
     std::string log_filename = "debug.csv";
     std::string phi_filename = "Phi_system.txt";
