@@ -20,7 +20,7 @@ int main() {
     std::string log_filename = "debug.csv";
     std::string phi_filename = "Phi_system.txt";
 
-    std::vector<std::vector<miniTemplate>> Phi_system;
+    std::vector<std::unordered_set<miniTemplate>> Phi_system;
     loadMiniPhiSystem(phi_filename, Phi_system);
 
     std::ofstream log(log_filename);
@@ -34,7 +34,7 @@ int main() {
     auto u_maps = load_u_distributions_from_file("u_distributions.csv");
     auto partial_sums = precompute_partial_sums(u_maps, 100000);
 
-    std::string ub_file = "debug_UB_tmp.csv";
+    std::string ub_file = "debug_UB_tmp";
 
     computeUB(Phi_system, rounds, ub_file, p, log, u_maps, partial_sums);
     log.close();

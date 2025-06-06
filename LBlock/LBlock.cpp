@@ -1,5 +1,14 @@
 ﻿#include "LBlock.h"
 
+namespace std {
+    template<>
+    struct hash<miniTemplate> {
+        std::size_t operator()(const miniTemplate& m) const {
+            return std::hash<unsigned long long>()(m.to_ullong());
+        }
+    };
+}
+
 int hammingWeight(const miniTemplate& t) {
     return static_cast<int>(t.count());
 }
@@ -97,7 +106,7 @@ void precomputePhiSystemToFile(const std::string& filename) {
     std::cout << "Phi system written to " << filename << "\n";
 }
 
-void loadMiniPhiSystem(const std::string& filename, std::vector<std::vector<miniTemplate>>& Phi_system) {
+void loadMiniPhiSystem(const std::string& filename, std::vector<std::unordered_set<miniTemplate>>& Phi_system) {
     std::ifstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Failed to open Phi_system.txt\n";
@@ -115,7 +124,7 @@ void loadMiniPhiSystem(const std::string& filename, std::vector<std::vector<mini
         std::istringstream iss(line);
         TemplateID phi_val;
         while (iss >> phi_val) {
-            Phi_system[line_id].emplace_back(miniTemplate(phi_val));
+            Phi_system[line_id].insert(miniTemplate(phi_val));
         }
         ++line_id;
     }
@@ -328,7 +337,7 @@ double get_precomputed_sum(
 }
 
 void computeUB(
-    const std::vector<std::vector<miniTemplate>>& Phi_system,
+    const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
     const std::string& base_filename,
     double p,
@@ -339,7 +348,7 @@ void computeUB(
     const size_t dim = 1 << num_blocks;
     const std::string round_file = base_filename + "_r";
 
-    // === Step 1: Compute UB^[2] and write to round_2.bin ===
+    // --- Round 2 ---
     std::string file_r = round_file + "2.bin";
     std::ofstream out_r(file_r, std::ios::binary);
     if (!out_r.is_open()) {
@@ -350,9 +359,11 @@ void computeUB(
     double max_t2 = 0.0;
     TemplateID a_max2 = 0, b_max2 = 0;
 
+    auto start_time = std::chrono::steady_clock::now();
+
+#pragma omp parallel for schedule(dynamic)
     for (TemplateID a_val = 0; a_val < dim; ++a_val) {
         std::vector<double> row(dim, 0.0);
-
         Template a(a_val);
         miniTemplate a_x, a_y;
         for (int i = 0; i < num_blocks / 2; ++i) a_x[i] = a[i];
@@ -368,20 +379,19 @@ void computeUB(
             for (int i = 0; i < num_blocks / 2; ++i) b_x[i] = b[i];
             for (int i = 0; i < num_blocks / 2; ++i) b_y[i] = b[i + num_blocks / 2];
 
-            miniTemplate Pb_x = P(b_x);
-
             TemplateID line1 = (Pa_y.to_ullong() << 4) + rho_ax.to_ullong();
             TemplateID line2 = (b_x.to_ullong() << 4) + rho_ay.to_ullong();
 
             bool cond1 = (line1 < Phi_system.size() &&
-                std::find(Phi_system[line1].begin(), Phi_system[line1].end(), b_x) != Phi_system[line1].end());
+                Phi_system[line1].find(b_x) != Phi_system[line1].end());
             bool cond2 = (line2 < Phi_system.size() &&
-                std::find(Phi_system[line2].begin(), Phi_system[line2].end(), b_y) != Phi_system[line2].end());
+                Phi_system[line2].find(b_y) != Phi_system[line2].end());
 
             if (cond1 && cond2) {
                 uint8_t wt = hammingWeight(a_y) + hammingWeight(b_x);
                 row[b_val] = std::pow(p, wt);
 
+#pragma omp critical
                 if (a_val != 0 && row[b_val] > max_t2) {
                     max_t2 = row[b_val];
                     a_max2 = a_val;
@@ -390,18 +400,36 @@ void computeUB(
             }
         }
 
-        out_r.write(reinterpret_cast<char*>(row.data()), dim * sizeof(double));
+#pragma omp critical
+        {
+            out_r.seekp(static_cast<std::streamoff>(a_val) * dim * sizeof(double));
+            out_r.write(reinterpret_cast<char*>(row.data()), dim * sizeof(double));
+        }
+
+        // Вивід прогресу кожні 1000 рядків
+        if (a_val % 1000 == 0) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+
+            std::cout << "\rRound 2 progress: processed " << a_val
+                << " rows out of " << dim
+                << ", elapsed time: " << elapsed << " s" << std::flush;
+        }
     }
 
     out_r.close();
+
+    std::cout << "\rRound 2 completed. Total rows processed: " << dim << "                     \n";
 
     log << "rho_perm_LBlock, p_perm_LBlock, 2,"
         << std::setprecision(16) << max_t2 << ","
         << a_max2 << "," << b_max2 << ","
         << Template(a_max2) << "," << Template(b_max2) << "\n";
+    std::cout << "Round 2: max_val = " << max_t2 << ", a_max = " << a_max2 << ", b_max = " << b_max2 << "\n";
 
-    // === Step 2: Loop from round 3 to rounds ===
+    // --- Round 3 and beyond ---
     for (int t = 3; t <= rounds; ++t) {
+        start_time = std::chrono::steady_clock::now();
         std::string file_prev = round_file + std::to_string(t - 1) + ".bin";
         std::string file_curr = round_file + std::to_string(t) + ".bin";
 
@@ -417,18 +445,19 @@ void computeUB(
             return;
         }
 
-        std::vector<std::vector<double>> UB_prev(dim, std::vector<double>(dim));
-        for (TemplateID i = 0; i < dim; ++i) {
-            in_prev.read(reinterpret_cast<char*>(UB_prev[i].data()), dim * sizeof(double));
-        }
-        in_prev.close();
-        std::remove(file_prev.c_str());
-
         double max_val = 0.0;
         TemplateID a_max = 0, b_max = 0;
 
+#pragma omp parallel for schedule(dynamic)
         for (TemplateID a_val = 0; a_val < dim; ++a_val) {
             std::vector<double> row(dim, 0.0);
+            std::vector<double> UB_prev_row(dim);
+
+#pragma omp critical
+            {
+                in_prev.seekg(static_cast<std::streamoff>(a_val) * dim * sizeof(double));
+                in_prev.read(reinterpret_cast<char*>(UB_prev_row.data()), dim * sizeof(double));
+            }
 
             for (TemplateID b_val = 0; b_val < dim; ++b_val) {
                 Template b(b_val);
@@ -439,16 +468,22 @@ void computeUB(
                 if (b_x.none()) {
                     miniTemplate rho_inv_by = RhoInverse(b_y);
                     Template transformed_b;
-                    for (int i = 0; i < num_blocks / 2; ++i) {
+                    for (int i = 0; i < num_blocks / 2; ++i)
                         transformed_b[i] = rho_inv_by[i];
-                        transformed_b[i + num_blocks / 2] = 0;
-                    }
-                    row[b_val] = UB_prev[a_val][transformed_b.to_ulong()];
+
+                    row[b_val] = UB_prev_row[transformed_b.to_ulong()];
                 }
                 else {
                     double M = 0.0;
-                    for (TemplateID gamma_val = 0; gamma_val < dim; ++gamma_val)
-                        M = std::max(M, UB_prev[gamma_val][b_val]);
+                    for (TemplateID gamma_val = 0; gamma_val < dim; ++gamma_val) {
+                        std::vector<double> gamma_row(dim);
+#pragma omp critical
+                        {
+                            in_prev.seekg(static_cast<std::streamoff>(gamma_val) * dim * sizeof(double));
+                            in_prev.read(reinterpret_cast<char*>(gamma_row.data()), dim * sizeof(double));
+                        }
+                        M = std::max(M, gamma_row[b_val]);
+                    }
 
                     miniTemplate Pb_x = P(b_x);
                     TemplateID phi_index = (b_y.to_ulong() << (num_blocks / 2)) + Pb_x.to_ulong();
@@ -463,7 +498,7 @@ void computeUB(
                                 gamma[i] = (gamma_val_raw >> i) & 1;
 
                             miniTemplate rho_gamma = Rho(gamma);
-                            if (std::find(phi_set.begin(), phi_set.end(), rho_gamma) != phi_set.end()) {
+                            if (phi_set.find(rho_gamma) != phi_set.end()) {
                                 Template gamma_template;
                                 for (int i = 0; i < num_blocks / 2; ++i)
                                     gamma_template[i] = gamma[i];
@@ -476,7 +511,7 @@ void computeUB(
                                 size_t limit = static_cast<size_t>(std::pow((1 << word_size) - 1, gamma_wt));
                                 double sum_u = get_precomputed_sum(bx_wt, limit, precomputed_sums);
 
-                                sum += UB_prev[a_val][gamma_id] * sum_u;
+                                sum += UB_prev_row[gamma_id] * sum_u;
                             }
                         }
                     }
@@ -484,6 +519,7 @@ void computeUB(
                     row[b_val] = std::min(M, sum);
                 }
 
+#pragma omp critical
                 if (a_val != 0 && row[b_val] > max_val) {
                     max_val = row[b_val];
                     a_max = a_val;
@@ -491,19 +527,39 @@ void computeUB(
                 }
             }
 
-            out_curr.write(reinterpret_cast<char*>(row.data()), dim * sizeof(double));
-        }
+#pragma omp critical
+            {
+                out_curr.seekp(static_cast<std::streamoff>(a_val) * dim * sizeof(double));
+                out_curr.write(reinterpret_cast<char*>(row.data()), dim * sizeof(double));
+            }
 
+            // Вивід прогресу кожні 1000 рядків у циклі раунду t
+            if (a_val % 1000 == 0) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+
+                std::cout << "\rRound " << t << " progress: processed " << a_val
+                    << " rows out of " << dim
+                    << ", elapsed time: " << elapsed << " s" << std::flush;
+            }
+        } 
+
+        std::cout << "\rRound " << t << " completed. Total rows processed: " << dim << "                     \n";
+
+        in_prev.close();
+        std::remove(file_prev.c_str());
         out_curr.close();
 
         log << "rho_perm_LBlock, p_perm_LBlock, " << t << ","
             << std::setprecision(16) << max_val << ","
             << a_max << "," << b_max << ","
             << Template(a_max) << "," << Template(b_max) << "\n";
+        std::cout << "Round " << t << ": max_val = " << max_val << ", a_max = " << a_max << ", b_max = " << b_max << "\n";
     }
 
     std::cout << "UB computation finished and saved round by round to .bin files.\n";
 }
+
 
 //void computeUB_to_bin(
 //    const std::vector<std::vector<miniTemplate>>& Phi_system,

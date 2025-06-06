@@ -5,6 +5,7 @@
 #include <cmath>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -18,6 +19,7 @@
 #include <utility>
 #include <cstdio>  
 #include <filesystem>
+#include <chrono>
 
 constexpr int word_size = 4; //u
 constexpr int num_blocks = 16; //m
@@ -36,7 +38,7 @@ miniTemplate RhoInverse(const miniTemplate& input);
 
 std::set<std::string> computePhiSystem(const Template& a_template, const Template& b_template);
 void precomputePhiSystemToFile(const std::string& filename);
-void loadMiniPhiSystem(const std::string& filename, std::vector<std::vector<miniTemplate>>& Phi_system);
+void loadMiniPhiSystem(const std::string& filename, std::vector<std::unordered_set<miniTemplate>>& Phi_system);
 
 //UB^t[a][b] upper bound matrix type
 using UBMatrix = std::unordered_map<TemplateID, std::unordered_map<TemplateID, double>>;
@@ -54,9 +56,9 @@ std::vector<std::vector<double>> precompute_partial_sums(const std::vector<std::
 double get_precomputed_sum(int w, size_t limit, const std::vector<std::vector<double>>& partial_sums);
 
 void computeUB(
-    const std::vector<std::vector<miniTemplate>>& Phi_system,
+    const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
-    const std::string& output_prefix,
+    const std::string& base_filename,
     double p,
     std::ofstream& log,
     const std::vector<std::map<double, size_t>>& u_distributions,
