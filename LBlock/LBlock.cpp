@@ -547,7 +547,7 @@ double get_precomputed_sum(
 //}
 
 void computeUB(
-    const std::vector<std::vector<miniTemplate>>& Phi_system,
+    const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
     const std::string& output_file,
     double p,
