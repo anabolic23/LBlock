@@ -336,175 +336,6 @@ double get_precomputed_sum(
     return vec[limit - 1];
 }
 
-//void computeUB_to_bin(
-//    const std::vector<std::vector<miniTemplate>>& Phi_system,
-//    int rounds,
-//    const std::string& output_prefix,
-//    double p,
-//    std::ofstream& log,
-//    const std::vector<std::map<double, size_t>>& u_distributions,
-//    const std::vector<std::vector<double>>& precomputed_sums
-//) {
-//    constexpr size_t N = 1 << num_blocks;
-//    std::string prev_filename = output_prefix + "_round_2.bin";
-//
-//    // === Step 1: Compute UB^{[2]} ===
-//    {
-//        std::ofstream bin_out(prev_filename, std::ios::binary);
-//        double max_val = 0.0;
-//        TemplateID max_a = 0, max_b = 0;
-//
-//        for (TemplateID a_val = 0; a_val < N; ++a_val) {
-//            Template a(a_val);
-//            miniTemplate a_x, a_y;
-//            for (int i = 0; i < num_blocks / 2; ++i) {
-//                a_x[i] = a[i];
-//                a_y[i] = a[i + num_blocks / 2];
-//            }
-//
-//            miniTemplate Pa_y = P(a_y);
-//            miniTemplate rho_ax = Rho(a_x);
-//            miniTemplate rho_ay = Rho(a_y);
-//
-//            for (TemplateID b_val = 0; b_val < N; ++b_val) {
-//                if (a_val % 100 == 0 && b_val == 0) {
-//                    std::cout << "[Round 2] UB row a_val = " << a_val << " / " << N << "\n";
-//                }
-//                Template b(b_val);
-//                miniTemplate b_x, b_y;
-//                for (int i = 0; i < num_blocks / 2; ++i) {
-//                    b_x[i] = b[i];
-//                    b_y[i] = b[i + num_blocks / 2];
-//                }
-//
-//                TemplateID line1 = (Pa_y.to_ullong() << 8) + rho_ax.to_ullong();
-//                TemplateID line2 = (b_x.to_ullong() << 8) + rho_ay.to_ullong();
-//
-//                bool cond1 = line1 < Phi_system.size() &&
-//                    std::find(Phi_system[line1].begin(), Phi_system[line1].end(), b_x) != Phi_system[line1].end();
-//                bool cond2 = line2 < Phi_system.size() &&
-//                    std::find(Phi_system[line2].begin(), Phi_system[line2].end(), b_y) != Phi_system[line2].end();
-//
-//                double ub = (cond1 && cond2) ? std::pow(p, hammingWeight(a_y) + hammingWeight(b_x)) : 0.0;
-//                bin_out.write(reinterpret_cast<const char*>(&ub), sizeof(double));
-//
-//                if (!(a_val == 0 && b_val == 0) && ub > max_val) {
-//                    max_val = ub;
-//                    max_a = a_val;
-//                    max_b = b_val;
-//                }
-//            }
-//        }
-//
-//        log << "rho_perm_LBlock,p_perm_LBlock,2,"
-//            << std::setprecision(16) << max_val << ","
-//            << max_a << "," << max_b << ","
-//            << Template(max_a) << "," << Template(max_b) << "\n";
-//    }
-//
-//    // === Step 2: UB^t for t >= 3 ===
-//    for (int t = 3; t <= rounds; ++t) {
-//        std::string current_filename = output_prefix + "_round_" + std::to_string(t) + ".bin";
-//        std::ifstream bin_in(prev_filename, std::ios::binary);
-//        std::ofstream bin_out(current_filename, std::ios::binary);
-//        if (!bin_in || !bin_out) {
-//            std::cerr << "Cannot open UB bin file for round " << t << "\n";
-//            return;
-//        }
-//
-//        double max_val = 0.0;
-//        TemplateID max_a = 0, max_b = 0;
-//
-//        std::vector<double> row_cache(N);     // for fixed a_val
-//        std::vector<double> column_cache(N);  // for fixed b_val
-//
-//        for (TemplateID b_val = 0; b_val < N; ++b_val) {
-//            for (TemplateID a_val = 0; a_val < N; ++a_val) {
-//                bin_in.seekg((a_val * N + b_val) * sizeof(double), std::ios::beg);
-//                bin_in.read(reinterpret_cast<char*>(&column_cache[a_val]), sizeof(double));
-//            }
-//
-//            for (TemplateID a_val = 0; a_val < N; ++a_val) {
-//                if (a_val % 100 == 0) {
-//                    std::cout << "[Round " << t << "] UB row a_val = " << a_val << " / " << N << "\n";
-//                }
-//
-//                bin_in.seekg(a_val * N * sizeof(double), std::ios::beg);
-//                bin_in.read(reinterpret_cast<char*>(row_cache.data()), N * sizeof(double));
-//
-//                Template b(b_val);
-//                miniTemplate b_x, b_y;
-//                for (int i = 0; i < num_blocks / 2; ++i) {
-//                    b_x[i] = b[i];
-//                    b_y[i] = b[i + num_blocks / 2];
-//                }
-//
-//                double result = 0.0;
-//                if (b_x.none()) {
-//                    miniTemplate rho_inv_by = RhoInverse(b_y);
-//                    Template transformed_b;
-//                    for (int i = 0; i < num_blocks / 2; ++i) {
-//                        transformed_b[i] = rho_inv_by[i];
-//                        transformed_b[i + num_blocks / 2] = 0;
-//                    }
-//                    TemplateID transformed_b_val = transformed_b.to_ulong();
-//                    result = row_cache[transformed_b_val];
-//                }
-//                else {
-//                    miniTemplate Pb_x = P(b_x);
-//                    TemplateID phi_index = (b_y.to_ulong() << 8) + Pb_x.to_ullong();
-//                    int bx_weight = hammingWeight(b_x);
-//                    double sum = 0.0;
-//
-//                    if (phi_index < Phi_system.size()) {
-//                        const auto& phi_set = Phi_system[phi_index];
-//                        for (TemplateID gamma_val = 0; gamma_val < (1 << (num_blocks / 2)); ++gamma_val) {
-//                            miniTemplate gamma(gamma_val);
-//                            miniTemplate rho_gamma = Rho(gamma);
-//                            if (std::find(phi_set.begin(), phi_set.end(), rho_gamma) != phi_set.end()) {
-//                                Template gamma_template;
-//                                for (int i = 0; i < num_blocks / 2; ++i) gamma_template[i] = gamma[i];
-//                                for (int i = 0; i < num_blocks / 2; ++i) gamma_template[i + num_blocks / 2] = b_x[i];
-//                                TemplateID gamma_template_val = gamma_template.to_ulong();
-//
-//                                double prev_val = row_cache[gamma_template_val];
-//
-//                                int gamma_weight = hammingWeight(gamma);
-//                                size_t limit = static_cast<size_t>(std::pow((1 << word_size) - 1, gamma_weight));
-//                                double sum_u = get_precomputed_sum(bx_weight, limit, precomputed_sums);
-//                                sum += prev_val * sum_u;
-//                            }
-//                        }
-//                    }
-//
-//                    double M = *std::max_element(column_cache.begin(), column_cache.end());
-//                    result = std::min(M, sum);
-//                }
-//
-//                bin_out.write(reinterpret_cast<const char*>(&result), sizeof(double));
-//
-//                if (!(a_val == 0 && b_val == 0) && result > max_val) {
-//                    max_val = result;
-//                    max_a = a_val;
-//                    max_b = b_val;
-//                }
-//            }
-//        }
-//
-//        bin_in.close();
-//        bin_out.close();
-//        std::remove(prev_filename.c_str());
-//        prev_filename = current_filename;
-//
-//        log << "rho_perm_LBlock,p_perm_LBlock," << t << ","
-//            << std::setprecision(16) << max_val << ","
-//            << max_a << "," << max_b << ","
-//            << Template(max_a) << "," << Template(max_b) << "\n";
-//    }
-//
-//    std::cout << "UB computation completed and saved to .bin files\n";
-//}
-
 void computeUB(
     const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
@@ -514,10 +345,10 @@ void computeUB(
     const std::vector<std::map<double, size_t>>& u_distributions,
     const std::vector<std::vector<double>>& precomputed_sums
 ) {
-    constexpr size_t N = 1ULL << num_blocks;
+    constexpr size_t N = 1 << num_blocks;
     std::string prev_filename = output_prefix + "_round_2.bin";
 
-    // === Step 1: Compute UB^{[2]} and write row-by-row ===
+    // === Step 1: Compute UB^{[2]} ===
     {
         std::ofstream bin_out(prev_filename, std::ios::binary);
         double max_val = 0.0;
@@ -536,10 +367,9 @@ void computeUB(
             miniTemplate rho_ay = Rho(a_y);
 
             for (TemplateID b_val = 0; b_val < N; ++b_val) {
-                if (a_val % 100 == 0 && b_val == 0) {
+                if (a_val % 1000 == 0 && b_val == 0) {
                     std::cout << "[Round 2] UB row a_val = " << a_val << " / " << N << "\n";
                 }
-
                 Template b(b_val);
                 miniTemplate b_x, b_y;
                 for (int i = 0; i < num_blocks / 2; ++i) {
@@ -551,9 +381,9 @@ void computeUB(
                 TemplateID line2 = (b_x.to_ullong() << 8) + rho_ay.to_ullong();
 
                 bool cond1 = line1 < Phi_system.size() &&
-                    Phi_system[line1].count(b_x);
+                    std::find(Phi_system[line1].begin(), Phi_system[line1].end(), b_x) != Phi_system[line1].end();
                 bool cond2 = line2 < Phi_system.size() &&
-                    Phi_system[line2].count(b_y);
+                    std::find(Phi_system[line2].begin(), Phi_system[line2].end(), b_y) != Phi_system[line2].end();
 
                 double ub = (cond1 && cond2) ? std::pow(p, hammingWeight(a_y) + hammingWeight(b_x)) : 0.0;
                 bin_out.write(reinterpret_cast<const char*>(&ub), sizeof(double));
@@ -577,7 +407,6 @@ void computeUB(
         std::string current_filename = output_prefix + "_round_" + std::to_string(t) + ".bin";
         std::ifstream bin_in(prev_filename, std::ios::binary);
         std::ofstream bin_out(current_filename, std::ios::binary);
-
         if (!bin_in || !bin_out) {
             std::cerr << "Cannot open UB bin file for round " << t << "\n";
             return;
@@ -586,19 +415,23 @@ void computeUB(
         double max_val = 0.0;
         TemplateID max_a = 0, max_b = 0;
 
-        std::vector<double> prev_row(N);
-        std::vector<double> column_cache(N);
+        std::vector<double> row_cache(N);     // for fixed a_val
+        std::vector<double> column_cache(N);  // for fixed b_val
 
-        for (TemplateID a_val = 0; a_val < N; ++a_val) {
-            if (a_val % 100 == 0) {
-                std::cout << "[Round " << t << "] UB row a_val = " << a_val << " / " << N << "\n";
+        for (TemplateID b_val = 0; b_val < N; ++b_val) {
+            for (TemplateID a_val = 0; a_val < N; ++a_val) {
+                bin_in.seekg((a_val * N + b_val) * sizeof(double), std::ios::beg);
+                bin_in.read(reinterpret_cast<char*>(&column_cache[a_val]), sizeof(double));
             }
 
-            // Read row for a_val
-            bin_in.seekg(static_cast<std::streamoff>(a_val) * N * sizeof(double), std::ios::beg);
-            bin_in.read(reinterpret_cast<char*>(prev_row.data()), N * sizeof(double));
+            for (TemplateID a_val = 0; a_val < N; ++a_val) {
+                if (a_val % 1000 == 0) {
+                    std::cout << "[Round " << t << "] UB row a_val = " << a_val << " / " << N << "\n";
+                }
 
-            for (TemplateID b_val = 0; b_val < N; ++b_val) {
+                bin_in.seekg(a_val * N * sizeof(double), std::ios::beg);
+                bin_in.read(reinterpret_cast<char*>(row_cache.data()), N * sizeof(double));
+
                 Template b(b_val);
                 miniTemplate b_x, b_y;
                 for (int i = 0; i < num_blocks / 2; ++i) {
@@ -609,12 +442,13 @@ void computeUB(
                 double result = 0.0;
                 if (b_x.none()) {
                     miniTemplate rho_inv_by = RhoInverse(b_y);
-                    Template tb;
+                    Template transformed_b;
                     for (int i = 0; i < num_blocks / 2; ++i) {
-                        tb[i] = rho_inv_by[i];
-                        tb[i + num_blocks / 2] = 0;
+                        transformed_b[i] = rho_inv_by[i];
+                        transformed_b[i + num_blocks / 2] = 0;
                     }
-                    result = prev_row[tb.to_ulong()];
+                    TemplateID transformed_b_val = transformed_b.to_ulong();
+                    result = row_cache[transformed_b_val];
                 }
                 else {
                     miniTemplate Pb_x = P(b_x);
@@ -627,28 +461,23 @@ void computeUB(
                         for (TemplateID gamma_val = 0; gamma_val < (1 << (num_blocks / 2)); ++gamma_val) {
                             miniTemplate gamma(gamma_val);
                             miniTemplate rho_gamma = Rho(gamma);
-                            if (phi_set.count(rho_gamma)) {
-                                Template g;
-                                for (int i = 0; i < num_blocks / 2; ++i) g[i] = gamma[i];
-                                for (int i = 0; i < num_blocks / 2; ++i) g[i + num_blocks / 2] = b_x[i];
+                            if (std::find(phi_set.begin(), phi_set.end(), rho_gamma) != phi_set.end()) {
+                                Template gamma_template;
+                                for (int i = 0; i < num_blocks / 2; ++i) gamma_template[i] = gamma[i];
+                                for (int i = 0; i < num_blocks / 2; ++i) gamma_template[i + num_blocks / 2] = b_x[i];
+                                TemplateID gamma_template_val = gamma_template.to_ulong();
 
-                                double prev_val = prev_row[g.to_ulong()];
-                                int gw = hammingWeight(gamma);
-                                size_t limit = static_cast<size_t>(std::pow((1 << word_size) - 1, gw));
+                                double prev_val = row_cache[gamma_template_val];
+
+                                int gamma_weight = hammingWeight(gamma);
+                                size_t limit = static_cast<size_t>(std::pow((1 << word_size) - 1, gamma_weight));
                                 double sum_u = get_precomputed_sum(bx_weight, limit, precomputed_sums);
-
                                 sum += prev_val * sum_u;
                             }
                         }
                     }
 
-                    // Compute max over column a_val
-                    for (TemplateID k = 0; k < N; ++k) {
-                        bin_in.seekg(static_cast<std::streamoff>(k) * N * sizeof(double) + b_val * sizeof(double), std::ios::beg);
-                        bin_in.read(reinterpret_cast<char*>(&column_cache[k]), sizeof(double));
-                    }
                     double M = *std::max_element(column_cache.begin(), column_cache.end());
-
                     result = std::min(M, sum);
                 }
 
