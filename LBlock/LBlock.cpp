@@ -339,10 +339,9 @@ double get_precomputed_sum(
 void computeUB(
     const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
+    const std::string& base_filename,
     double p,
     std::ofstream& log,
-    const std::vector<int>& rho_perm,
-    const std::vector<int>& p_perm,
     const std::vector<std::map<double, size_t>>& u_distributions,
     const std::vector<std::vector<double>>& precomputed_sums) {
 
@@ -396,7 +395,7 @@ void computeUB(
                 }
             }
         }
-        std::cout << std::endl;  // Закінчення логу прогресу
+        std::cout << std::endl; 
 
         // Logging max value after round 2
         double max_t2 = 0.0;
