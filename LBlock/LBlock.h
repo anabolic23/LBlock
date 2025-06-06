@@ -58,8 +58,9 @@ double get_precomputed_sum(int w, size_t limit, const std::vector<std::vector<do
 void computeUB(
     const std::vector<std::unordered_set<miniTemplate>>& Phi_system,
     int rounds,
-    const std::string& base_filename,
+    const std::string& output_prefix,
     double p,
     std::ofstream& log,
     const std::vector<std::map<double, size_t>>& u_distributions,
-    const std::vector<std::vector<double>>& precomputed_sums);
+    const std::vector<std::vector<double>>& precomputed_sums
+);
